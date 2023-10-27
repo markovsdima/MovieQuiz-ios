@@ -17,6 +17,7 @@ final class MovieQuizViewController: UIViewController {
     private var correctAnswers = 0
     
     //IBOutlets
+    @IBOutlet weak var activityIndicator: UIActivityIndicatorView!
     @IBOutlet weak private var imageView: UIImageView!
     @IBOutlet weak private var textLabel: UILabel!
     @IBOutlet weak private var counterLabel: UILabel!
@@ -27,22 +28,50 @@ final class MovieQuizViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        questionFactory = QuestionFactoryImpl(delegate: self)
+        questionFactory = QuestionFactoryImpl(moviesLoader: MoviesLoader(), delegate: self)
         alertPresenter = AlertPresenterImpl(delegate: self)
         statisticService = StatisticServiceImpl()
         
-        // запрашиваем вопрос у фабрики
-        questionFactory?.requestNextQuestion()
+        questionFactory?.loadData()
+        showLoadingIndicator()
         
         // для дизайна
         imageView.layer.cornerRadius = 20
     }
     
+    private func showLoadingIndicator() {
+        activityIndicator.isHidden = false
+        activityIndicator.startAnimating()
+    }
+    
+    private func hideLoadingIndicator() {
+        activityIndicator.isHidden = true
+        activityIndicator.stopAnimating()
+    }
+    
+    private func showNetworkError(message: String) {
+        hideLoadingIndicator()
+        
+        let alertModel = AlertModel(
+            title: "Ошибка",
+            message: message,
+            buttonText: "Попробовать еще раз",
+            buttonAction: { [weak self] in
+                self?.currentQuestionIndex = 0
+                self?.correctAnswers = 0
+                self?.questionFactory?.requestNextQuestion()
+            }
+        )
+        
+        alertPresenter?.show(alertModel: alertModel)
+    }
+    
+    
     // MARK: - Functions
     // приватный метод конвертации, который принимает моковый вопрос и возвращает вью модель для главного экрана
     private func convert(model: QuizQuestion) -> QuizStepViewModel {
         QuizStepViewModel(
-            image: UIImage(named: model.image) ?? UIImage(),
+            image: UIImage(data: model.image) ?? UIImage(),
             question: model.text,
             questionNumber: "\(currentQuestionIndex + 1)/\(questionsAmount)"
         )
@@ -125,19 +154,6 @@ final class MovieQuizViewController: UIViewController {
         Средняя точность: \(String(format: "%.2f", statisticService.totalAccuracy))%
         """
         
-        
-        /*
-         let totalPlaysCountLine = "Количество сыгранных квизов: \(statisticService.gamesCount)"
-         let currentGameResultLine = "Ваш результат: \(correctAnswers)/\(questionsAmount)"
-         let bestGameInfoLine = "Рекорд: \(bestGame.correct)/\(bestGame.total)"
-         + " (\(bestGame.date.dateTimeString))"
-         let averageAccuracyLine = "Средняя точность: \(String(format: "%.2f", statisticService.totalAccuracy))%"
-         
-         let resultMessage = [
-         currentGameResultLine, totalPlaysCountLine, bestGameInfoLine, averageAccuracyLine
-         ].joined(separator: "\n")
-         */
-        
         return resultMessage
     }
     
@@ -157,9 +173,17 @@ final class MovieQuizViewController: UIViewController {
     }
 }
 
+// MARK: - QuestionFactoryDelegate
+
 extension MovieQuizViewController: QuestionFactoryDelegate {
+    func didLoadDataFromServer() {
+        activityIndicator.isHidden = true
+        questionFactory?.requestNextQuestion()
+    }
     
-    // MARK: - QuestionFactoryDelegate
+    func didFailToLoadData(with error: Error) {
+        showNetworkError(message: error.localizedDescription)
+    }
     
     func didReceiveNextQuestion(question: QuizQuestion?) {
         guard let question = question else {
@@ -168,7 +192,7 @@ extension MovieQuizViewController: QuestionFactoryDelegate {
         
         currentQuestion = question
         let viewModel = convert(model: question)
-        //show(quiz: viewModel)
+        
         DispatchQueue.main.async { [weak self] in
             self?.show(quiz: viewModel)
         }
